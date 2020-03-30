@@ -14,8 +14,9 @@ EVA="evaluaciones"
 counter=0
 
 # Credenciales correo
-MAIL="szertegiaadm@szertegia.com"
-PASS="hktr2009"
+HOST=""
+MAIL="@"
+PASS=""
 
 
 # ===========================================================================
@@ -24,7 +25,7 @@ PASS="hktr2009"
 # Si no funciona con las variables del correo posiblemente deba instalar attachment-downloader
 # ===========================================================================
 descargar_correos(){
-attachment-downloader --host mbox.server313.com --username $MAIL --password $PASS \\ --imap-folder inbox --output ~/Documentos/actualizacionesadm
+attachment-downloader --host $HOST --username $MAIL --password $PASS \\ --imap-folder inbox --output ~/Documentos/actualizacionesadm
 clear
 echo "${BLUE}Archivos descargados de mbox.server313.com${END}"
 }
