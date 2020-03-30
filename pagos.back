@@ -1,0 +1,381 @@
+#!/bin/sh
+
+# Código colores
+RED="\033[0;31m"
+GREEN="\033[0;32m"
+YELLOW="\033[0;33m"
+BLUE="\033[0;34m"
+END="\033[0;37m"
+
+# Rutas programa
+DEF_ROUTE="/home/madueno/Documentos/actualizacionesadm"
+EXT="extracted"
+EVA="evaluaciones"
+counter=0
+
+# Credenciales correo
+MAIL="szertegiaadm@szertegia.com"
+PASS="hktr2009"
+
+
+# ===========================================================================
+# Descargamos por medio del comando attachment-downloader los archivos del correo
+# Si no descarga los correos hace falta configurar las variables del correo
+# Si no funciona con las variables del correo posiblemente deba instalar attachment-downloader
+# ===========================================================================
+descargar_correos(){
+attachment-downloader --host mbox.server313.com --username $MAIL --password $PASS \\ --imap-folder inbox --output ~/Documentos/actualizacionesadm
+clear
+echo "${BLUE}Archivos descargados de mbox.server313.com${END}"
+}
+
+# ===========================================================================
+# Función que se manda llamar desde el metodo principal
+# Confirma si desea descargar borrando o sin borrar los archivos actuales
+# ===========================================================================
+descargar(){
+	cd $DEF_ROUTE
+	f=`ls -1 | wc -l`
+	if test $f -gt 0
+	then 
+		status
+		echo "[${YELLOW}!${END}] Eliminar contenido para comenzar descarga. Desea continuar?[Y/n]"
+		read response
+		case $response in 
+			Y|y|S|s)
+				cd $DEF_ROUTE
+				rm -Rf *
+				descargar_correos
+				;;
+			*)
+				echo "[${GREEN}!${END}] Descargando sin borrar nada."
+				descargar_correos
+		esac
+	else
+		descargar_correos
+	fi
+}
+
+# ===========================================================================
+# Imprime la estructura de la carpeta contenedora de archivos
+# ===========================================================================
+status(){
+	cd $DEF_ROUTE
+	t=`ls -1 | wc -l`
+	echo "${YELLOW}carpeta de pagos${END}/"
+	for i in `ls -1`
+	do
+		if [ -d $i ]; then
+			echo "|-${YELLOW}$i${END}/"
+			f=`ls -1 $i | wc -l`
+			echo "| |-$f archivos"
+			t=$((t-1))
+		fi
+	done
+	echo "|-$t archivos"
+}
+
+# ===========================================================================
+# Función que extrae los archivos que se encuentren dentro
+# de la carpeta actualizaciones adm
+# ===========================================================================
+descomprimir_archivos(){
+	cd $DEF_ROUTE
+	f=`ls -1 | grep -i "zip" | wc -l`
+
+	#extracted existe?
+	if ! [ -d extracted ]; then
+		echo "Se creó directorio ${BLUE}extracted${END}"
+		mkdir extracted
+	fi
+
+	#Evaluaciones existe?
+	if ! [ -d evaluaciones ]; then
+		echo "Se creó directorio ${BLUE}evaluaciones${END}"
+                mkdir evaluaciones
+        fi
+
+	#Descompimir
+	if test $f -gt 0
+	then
+		unzip '*.zip' >/dev/null 2>&1
+		echo "${BLUE}$(numberFormat $f)${END} archivos descomprimidos"
+	fi
+}
+
+# ===========================================================================
+# Función convirerte un un numero en formato 00
+# si recibe 1 retorna 01
+# ===========================================================================
+numberFormat(){
+	if test $1 -lt 10
+	then
+		echo "0$1"
+	else
+		echo $1
+	fi
+}
+
+# ===========================================================================
+# Función que borra los archivos ZIP dentro de actualizaciones adm
+# ===========================================================================
+borrar_zip(){
+	cd $DEF_ROUTE
+	find . -name "*.zip" -type f -delete
+}
+
+# ===========================================================================
+# Movemos los archivos a sus carpetas correspondientes
+# ===========================================================================
+mover_archivos(){
+	cd $DEF_ROUTE
+	rename 's/ /_/g' *.xls
+	rename 's/ /_/g' *.txt
+
+	#Mover archivos de evaluación
+	for i in *.xls
+	do	
+		if [ -f "$i" ] && [ "$i" != "*.xls" ]; then
+			mv $i $DEF_ROUTE/$EVA
+		fi
+	done
+
+	#Mover archivos de actualización
+	for a in *.txt
+	do
+		if [ -f "$a" ] && [ "$a" != "*.txt" ]; then
+			mv $a  $DEF_ROUTE/$EXT
+		fi
+	done
+}
+
+# ===========================================================================
+# Proceso principal donde se tratan los archivos extraidos del ZIP
+# Los archivos en formato TXT ( separado por tabs ) se transforman a formato CSV ( separado por comas )
+# ===========================================================================
+convertir_csv(){
+	c=0
+	#echo "Contador: $c"
+	cd $DEF_ROUTE/$EXT
+	#echo "Comenzando conversión"
+	for i in *.txt
+	do
+		# i = archivo_completo.txt
+		# f = archivo_completo
+		#echo "Archivo: $i"
+		#read TMP
+		if [ $i != "*.txt" ]; then
+			f=`echo $i | awk -F "." '{print $1}'`
+			#echo "$f"
+		fi
+		#echo "${DEF_ROUTE}/${f}.csv | $i"
+		#read TMP
+		if ! [ -f ${DEF_ROUTE}/${f}.csv ] && [ $i != "*.txt" ]; then
+			sed -i 's/[,;"]//g' $i						# elimina simbolos
+			#cat $i
+			#read TMP
+			cat $i | tr "\\t" "," > ${DEF_ROUTE}/${f}.csv			# reemplaza tabulaciones por comas
+			#echo "$i | ${DEF_ROUTE}/${f}.csv nuevo contenido"
+			#read TMP
+			sed -i 1d ${DEF_ROUTE}/${f}.csv					# elimina la fila #1 del archivo
+			c=$((c+1))							# incrementa contador
+		fi
+	done
+
+	if test $c -eq 0
+	then
+		echo "[${YELLOW}!${END}] No hay archivos para convertir"
+	else
+		echo "${BLUE}$(numberFormat $c)${END} archivos de ${BLUE}actualización${END} convertidos"
+	fi
+}
+
+# ===========================================================================
+# Este metodo agrega una columna vacia en el archivo CSV final
+# Ya que originalmente venía con esa estructura y así quedo
+# configurado al cargarse el archivo
+# ===========================================================================
+agregar_columna(){
+	cd $DEF_ROUTE
+	for s in *.csv
+	do
+		# NR == 1 : reglon 1 && print $9 = columna #9
+		value=`awk -F "," 'NR == 1 {print $9}' $s`
+		if ! [ -z "$value" ]; then
+			awk -F "," '{$9="" FS $9;}1' OFS=, $s > "_$s"
+			rm -f $s
+			rename 's/_Ciclo/Ciclo/g' *.csv
+		fi
+	done
+}
+
+# ===========================================================================
+# Función que evalua si las columnas de saldo 30 y/o 60 días están colocadas
+# correctamente segun sea el caso de cada cartera
+# ===========================================================================
+reubicar_saldos(){
+	c=0
+	cd $DEF_ROUTE
+	for s in *.csv
+	do
+		#este comando realiza una sumatoria de la columna 20 y 21 e imprime el resultado
+		r=`awk -F "," '{t+=$20;u+=$21} END {print t "\t\t" u "\t"}' $s`
+		s30=`echo $r | awk '{print $1}'`						#Saldo 30
+		s60=`echo $r | awk '{print $2}'`						#Saldo 60 días
+		dias=`echo $s| awk -F '[_]?[A-Za-z]*[_]?' '{print $3}'`	#Número días ciclo
+
+		if [ "$dias" = "30" ] && [ "$s30" = "0" ]; then
+			awk -F "," '{$20=$19}1' OFS=, $s > "_${s}"
+			rm -f $s
+			c=$((counter+1))
+		elif [ "$dias" = "60" ] && [ "$s60" = "0" ]; then
+			awk -F "," '{$21=$20;$20=$19}1' OFS=, $s > "_$s"
+			rm -f $s
+			c=$((counter+1))
+		fi
+		rename 's/_Ciclo/Ciclo/g' *.csv
+	done
+	if test $c -gt 0
+	then
+		echo "${BLUE}$(numberFormat $c)${END} archivos manipulados"
+	fi
+}
+
+# ===========================================================================
+# Elimina el contenido de la cartera actualizacionesadm
+# ===========================================================================
+borrar_archivos(){
+	status
+	echo "[${YELLOW}!${END}] Borrar ${BLUE}actualizacionesadm${END}, desea continuar?[Y/n]"
+	read response
+	case $response in
+		Y|y|S|s)
+			cd $DEF_ROUTE
+			rm -Rf *
+			;;
+	esac
+}
+
+# ===========================================================================
+# Imprime mensaje donde proporciona los comandos a usar
+# ===========================================================================
+ayuda(){
+	echo "pagos ${RED}full-process${END} - Proceso completo (recomendado)"
+	echo "${GREEN}Otros comandos{END}"
+	echo "pagos ${YELLOW}[param]${END}"
+	echo "pagos ${YELLOW}borrar${END} - borra el contenido de la carpeta"
+	echo "pagos ${YELLOW}status${END} - mostrar contenido de carpeta"
+	echo "pagos ${YELLOW}evaluaciones${END} - extracto de archivos de evaluacion"
+	echo "${GREEN}[debug]${END}"
+	echo "pagos [descomprimir-zip|borrar-zip|mover-archivos|convertir-csv|agregar-columna|corregir-saldos|borrar-todo]"
+}
+
+proceso_completo(){
+	borrar_archivos s       # Borrar
+	descargar_correos	# Descargar
+	echo "Presione ${YELLOW}[ENTER]${END} para continuar"
+	read TMP
+	descomprimir_archivos
+        borrar_zip
+        mover_archivos
+        convertir_csv
+        agregar_columna
+        reubicar_saldos
+	evaluaciones
+}
+
+# ===========================================================================
+# Función que borra los archivos de evaluacion que no se necesitan
+# Deja solamente los necesarios
+# (IDEA) Comprimir en ZIP para enviar un sólo archivo
+# ===========================================================================
+evaluaciones(){
+	cd $DEF_ROUTE
+	if [ -d evaluaciones ]; then
+	cd $EVA
+		count=0
+		for i in *.xls
+		do
+			if [ -f $i ]; then
+				ciclo=`echo $i | awk -F "_" '{print $5}'`
+				book=`echo $i | awk -F "_" '{print $3}'`
+				if [ "$ciclo" -eq "30" ] && [ "$book" -ne "30" ];
+				then
+					rm -f $i
+					count=$((count+1))
+				else
+					case $book in
+						22|31|32)
+						rm -f $i
+						count=$((count+1))
+						;;
+					esac
+				fi
+			fi
+		done
+
+		if test $count -gt 0
+		then
+			echo "[${GREEN}!${END}] Se depuraron $count archivos."
+		else
+			echo "[${YELLOW}!${END}] Sin ninguna acción"
+		fi
+	else
+		echo "[${YELLOW}!${END}] El directorio 'evaluaciones' no existe."
+	fi
+}
+
+###################################
+# Main body of script starts here #
+###################################
+
+if test $# -eq 0
+then
+	echo "[${YELLOW}!${END}] Sin argumentos. Utiliza ${YELLOW}pagos ayuda${END}"
+elif test $# -eq 1
+then
+        case $1 in
+                full-process)
+                        proceso_completo
+                        ;;
+                borrar)
+                        delete
+                        ;;
+                descargar)
+                        descargar
+                        ;;
+		ayuda)
+                        ayuda
+                        ;;
+		status)
+                        status
+                        ;;
+		evaluaciones)
+                        evaluaciones
+                        ;;
+		descomprimir-zip)
+			descomprimir_archivos
+			;;
+		borrar-zip)
+			borrar_zip
+			;;
+		mover-archivos)
+			mover_archivos
+			;;
+		convertir-csv)
+			convertir_csv
+			;;
+		agregar-columna)
+			agregar_columna
+			;;
+		corregir-saldos)
+			reubicar_saldos
+			;;
+		borrar-todo)
+			borrar_archivos
+			;;
+                *)
+			echo "[${YELLOW}!${END}] Argumento invalido. Utiliza ${YELLOW}pagos ayuda${END}"
+                        ;;
+        esac
+fi
